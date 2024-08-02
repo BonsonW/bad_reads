@@ -25,7 +25,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     
     if args.len() != 4 {
-        println!("usage: bad_reads <slow5 file_path> <scan_data file_path> <out file_path>");
+        println!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path>");
         exit(0);
     }
     
