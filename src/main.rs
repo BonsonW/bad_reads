@@ -19,6 +19,7 @@ struct ReadTimestamp {
     read_id: String,
     secs_start: f64,
     channel: u32,
+    well: u8,
 }
 
 fn main() {
@@ -52,6 +53,7 @@ fn main() {
     
     let mux_stat_idx = 26;
     let channel_idx = 0;
+    let well_idx = 1;
     let mux_secs_start_idx = 36;
     
     // get every bad mux scan on a channel
@@ -60,14 +62,12 @@ fn main() {
         let csv_entry = line.split(',').collect::<Vec<&str>>();
         if csv_entry[mux_stat_idx] != "single_pore" {
             let channel = csv_entry[channel_idx].parse::<u32>().expect("could not parse channel col");
+            let well = csv_entry[well_idx].parse::<u8>().expect("could not parse channel col");
+            let key = (channel, well);
+
             let secs_start = csv_entry[mux_secs_start_idx].parse::<f64>().expect("could not parse start time col");
             
-            let cmuxs = bad_channels.entry(channel).or_insert(ChannelMuxs::default());
-            
-            // skip if entry already exists
-            if let Some(last_entry) = cmuxs.muxs.last() {
-                if last_entry.secs_start == secs_start { continue; }
-            }
+            let cmuxs = bad_channels.entry(key).or_insert(ChannelMuxs::default());
             
             cmuxs.muxs.push(BadMux {
                 secs_start,
@@ -90,6 +90,7 @@ fn main() {
         
         let channel = rec.get_aux_field::<&str>("channel_number").expect("could not load aux_field `channel_number`");
         let channel = channel.parse::<u32>().expect("could not parse channel_number as u32");
+        let well = rec.get_aux_field::<u8>("start_mux").expect("could not load aux_field `start_mux`");
         
         let samples_start = rec.get_aux_field::<u64>("start_time").expect("could not load aux_field `start_time`");
         let secs_start = samples_start as f64 / rec.sampling_rate();
@@ -98,6 +99,7 @@ fn main() {
             read_id: String::from_utf8(rec.read_id().to_vec()).expect("could not get read_id from rec"),
             secs_start,
             channel,
+            well
         })
     }
     
@@ -109,7 +111,7 @@ fn main() {
     // update bad channel entries
     println!("inserting timestamps into channel entries...");
     for ts in read_timestamps.iter() {
-        let cmuxs = bad_channels.get_mut(&ts.channel);
+        let cmuxs = bad_channels.get_mut(&(ts.channel, ts.well));
         if cmuxs.is_none() { continue; }
         let cmuxs = cmuxs.unwrap();
         
