@@ -24,14 +24,14 @@ struct ReadTimestamp {
 fn main() {
     let args: Vec<String> = env::args().collect();
     
-    if args.len() != 3 {
-        println!("usage: bad_reads <slow5_file> <scan_data_file>");
+    if args.len() != 4 {
+        println!("usage: bad_reads <slow5 file_path> <scan_data file_path> <out file_path>");
         exit(0);
     }
     
     let slow5_fpath = Path::new(&args[1]);
     let scan_data_fpath = Path::new(&args[2]);
-    let out_fpath = Path::new("bad_reads.txt");
+    let out_fpath = Path::new(&args[3]);
     
     if !scan_data_fpath.exists() {
         panic!("invalid scan_data path");
@@ -40,6 +40,13 @@ fn main() {
     if !slow5_fpath.exists() {
         panic!("invalid slow5 path");
     }
+    
+    let out_file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .append(true)
+        .open(out_fpath)
+        .expect("could not open out file");
     
     let mut bad_channels = HashMap::new();
     
@@ -123,12 +130,6 @@ fn main() {
     
     // write read-ids to file
     println!("writing read_ids into file...");
-    let out_file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .append(true)
-        .open(out_fpath)
-        .expect("could not open out file");
     let mut out_file = BufWriter::new(out_file);
         
     for cmuxs in bad_channels.values() {
