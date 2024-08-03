@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, fs::{read_to_string, OpenOptions}, io::{BufWriter, Write}, path::Path};
+use std::{collections::HashMap, env, fs::{read_to_string, OpenOptions}, io::{BufWriter, Write}, path::Path, process::exit};
 
 use slow5::{FileReader, RecordExt};
 
@@ -6,16 +6,17 @@ use slow5::{FileReader, RecordExt};
 mod tests;
 
 #[derive(Default)]
-struct PoreMuxs<'a> {
-    muxs: Vec<BadMux<'a>>,
+struct PoreMuxStats<'a> {
+    muxs: Vec<MuxStat<'a>>,
     last_entry: usize,
 }
 
 #[derive(Default)]
-struct BadMux<'a> {
+struct MuxStat<'a> {
     secs_start: f64,
     last_read_secs_start: f64,
     last_read_id: Option<&'a String>,
+    bad: bool
 }
 
 struct ReadTimestamp {
@@ -29,7 +30,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     
     if args.len() != 4 {
-        panic!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path>");
+        println!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path>");
+        exit(1);
     }
     
     let slow5_fpath = Path::new(&args[1]);
@@ -37,11 +39,13 @@ fn main() {
     let out_fpath = Path::new(&args[3]);
     
     if !scan_data_fpath.exists() {
-        panic!("invalid scan_data path");
+        println!("invalid scan_data path");
+        exit(1);
     }
     
     if !slow5_fpath.exists() {
-        panic!("invalid slow5 path");
+        println!("invalid slow5 path");
+        exit(1);
     }
     
     let out_file = OpenOptions::new()
@@ -101,7 +105,7 @@ fn gen_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
     ret
 }
 
-fn gen_pore_mux_map(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxs> {
+fn gen_pore_mux_map(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxStats> {
     let mut ret = HashMap::new();
     
     let mux_stat_col = 26;
@@ -111,17 +115,24 @@ fn gen_pore_mux_map(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxs> {
     
     for line in read_to_string(scan_data_fpath).unwrap().lines().skip(1) {
         let csv_entry = line.split(',').collect::<Vec<&str>>();
-        if csv_entry[mux_stat_col] != "single_pore" {
-            let channel = csv_entry[channel_col].parse::<u32>().expect("could not parse channel col");
-            let pore = csv_entry[pore_col].parse::<u8>().expect("could not parse pore col");
-            let key = (channel, pore);
+        let secs_start = csv_entry[mux_secs_start_col].parse::<f64>().expect("could not parse start time col");
+        
+        let channel = csv_entry[channel_col].parse::<u32>().expect("could not parse channel col");
+        let pore = csv_entry[pore_col].parse::<u8>().expect("could not parse pore col");
+        let key = (channel, pore);
+        
+        let pore_muxs = ret.entry(key).or_insert(PoreMuxStats::default());
 
-            let secs_start = csv_entry[mux_secs_start_col].parse::<f64>().expect("could not parse start time col");
-            
-            let pore_muxs = ret.entry(key).or_insert(PoreMuxs::default());
-            
-            pore_muxs.muxs.push(BadMux {
+        if csv_entry[mux_stat_col] == "single_pore" {
+            pore_muxs.muxs.push(MuxStat {
                 secs_start,
+                bad: false,
+                ..Default::default()
+            });
+        } else {
+            pore_muxs.muxs.push(MuxStat {
+                secs_start,
+                bad: true,
                 ..Default::default()
             });
         }
@@ -130,7 +141,7 @@ fn gen_pore_mux_map(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxs> {
     ret
 }
 
-fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxs<'a>>, read_timestamps: &'a Vec<ReadTimestamp>) -> Vec<&'a String> {
+fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxStats<'a>>, read_timestamps: &'a Vec<ReadTimestamp>) -> Vec<&'a String> {
     let mut ret = Vec::new();
     
     for ts in read_timestamps.iter() {
@@ -139,14 +150,19 @@ fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxs<'a>>, read_ti
         let pore_muxs = pore_muxs.unwrap();
         
         for i in pore_muxs.last_entry..pore_muxs.muxs.len() {
-            let bad_mux = pore_muxs.muxs.get_mut(i).expect("error indexing channel_muxs");
-            if ts.secs_start >= bad_mux.secs_start {
+            let muxstat = pore_muxs.muxs.get_mut(i).expect("error indexing channel_muxs");
+            
+            if ts.secs_start < muxstat.secs_start {
+                if !muxstat.bad {
+                    break;
+                }
+            } else {
                 pore_muxs.last_entry = i+1;
                 continue;
             }
             
-            bad_mux.last_read_id = Some(&ts.read_id);
-            bad_mux.last_read_secs_start = ts.secs_start;
+            muxstat.last_read_id = Some(&ts.read_id);
+            muxstat.last_read_secs_start = ts.secs_start;
             
             pore_muxs.last_entry = i;
             break;
@@ -154,8 +170,8 @@ fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxs<'a>>, read_ti
     }
     
     for pore_muxs in pore_mux_map.values() {
-        for bad_mux in pore_muxs.muxs.iter() {
-            if let Some(read_id) = bad_mux.last_read_id {
+        for muxstat in pore_muxs.muxs.iter() {
+            if let Some(read_id) = muxstat.last_read_id {
                 ret.push(read_id);
             }
         }
