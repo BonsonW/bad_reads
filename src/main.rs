@@ -56,15 +56,11 @@ fn main() {
     let pore_mux_map = get_scan_data(scan_data_fpath);
 
     println!("generating slow5 rec timestamps...");
-    let mut read_timestamps = get_read_timestamps(slow5_fpath);
-    
-    // sort by start time
-    read_timestamps.sort_by(|a, b| a.secs_start.partial_cmp(&b.secs_start).unwrap());
+    let read_timestamps = get_read_timestamps(slow5_fpath);
     
     println!("fetching bad reads...");
     let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
     
-    // write read-ids to file
     println!("writing read_ids into file...");
     let mut out_file = BufWriter::new(out_file);
     
@@ -100,6 +96,8 @@ fn get_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
             pore
         })
     }
+    
+    ret.sort_by(|a, b| a.secs_start.partial_cmp(&b.secs_start).unwrap());
 
     ret
 }
