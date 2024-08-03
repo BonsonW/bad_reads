@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, fs::{read_to_string, OpenOptions}, io::{BufWriter, Write}, path::Path, process::exit};
+use std::{collections::HashMap, env, fs::{read_to_string, OpenOptions}, io::{BufWriter, Write}, path::Path};
 
 use slow5::{FileReader, RecordExt};
 
@@ -29,8 +29,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     
     if args.len() != 4 {
-        println!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path>");
-        exit(0);
+        panic!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path>");
     }
     
     let slow5_fpath = Path::new(&args[1]);
@@ -53,10 +52,10 @@ fn main() {
         .expect("could not open out file");
         
     println!("reading mux scan data...");
-    let pore_mux_map = get_scan_data(scan_data_fpath);
+    let pore_mux_map = gen_pore_mux_map(scan_data_fpath);
 
-    println!("generating slow5 rec timestamps...");
-    let read_timestamps = get_read_timestamps(slow5_fpath);
+    println!("generating slow5 read timestamps...");
+    let read_timestamps = gen_read_timestamps(slow5_fpath);
     
     println!("fetching bad reads...");
     let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
@@ -71,7 +70,7 @@ fn main() {
     println!("all done!");
 }
 
-fn get_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
+fn gen_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
     let mut ret = Vec::new();
     
     let mut slow5 = FileReader::open(slow5_fpath).expect("could not open slow5");
@@ -102,7 +101,7 @@ fn get_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
     ret
 }
 
-fn get_scan_data(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxs> {
+fn gen_pore_mux_map(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxs> {
     let mut ret = HashMap::new();
     
     let mux_stat_col = 26;
