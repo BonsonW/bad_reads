@@ -59,9 +59,7 @@ fn main() {
     let mut read_timestamps = get_read_timestamps(slow5_fpath);
     
     // sort by start time
-    read_timestamps.sort_by_key(|ts| {
-        ts.secs_start;
-    });
+    read_timestamps.sort_by(|a, b| a.secs_start.partial_cmp(&b.secs_start).unwrap());
     
     println!("fetching bad reads...");
     let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
