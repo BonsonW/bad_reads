@@ -105,19 +105,19 @@ fn get_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
 fn get_scan_data(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxs> {
     let mut ret = HashMap::new();
     
-    let mux_stat_idx = 26;
-    let channel_idx = 0;
-    let pore_idx = 1;
-    let mux_secs_start_idx = 36;
+    let mux_stat_col = 26;
+    let channel_col = 0;
+    let pore_col = 1;
+    let mux_secs_start_col = 36;
     
     for line in read_to_string(scan_data_fpath).unwrap().lines().skip(1) {
         let csv_entry = line.split(',').collect::<Vec<&str>>();
-        if csv_entry[mux_stat_idx] != "single_pore" {
-            let channel = csv_entry[channel_idx].parse::<u32>().expect("could not parse channel col");
-            let pore = csv_entry[pore_idx].parse::<u8>().expect("could not parse pore col");
+        if csv_entry[mux_stat_col] != "single_pore" {
+            let channel = csv_entry[channel_col].parse::<u32>().expect("could not parse channel col");
+            let pore = csv_entry[pore_col].parse::<u8>().expect("could not parse pore col");
             let key = (channel, pore);
 
-            let secs_start = csv_entry[mux_secs_start_idx].parse::<f64>().expect("could not parse start time col");
+            let secs_start = csv_entry[mux_secs_start_col].parse::<f64>().expect("could not parse start time col");
             
             let pore_muxs = ret.entry(key).or_insert(PoreMuxs::default());
             
