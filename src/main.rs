@@ -2,6 +2,9 @@ use std::{collections::HashMap, env, fs::{read_to_string, OpenOptions}, io::{Buf
 
 use slow5::{FileReader, RecordExt};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 struct ChannelMuxs<'a> {
     muxs: Vec<BadMux<'a>>,
@@ -49,6 +52,60 @@ fn main() {
         .open(out_fpath)
         .expect("could not open out file");
     
+    println!("generating slow5 rec timestamps...");
+    let mut read_timestamps = get_read_timestamps(slow5_fpath);
+    
+    // sort by start time
+    read_timestamps.sort_by_key(|ts| {
+        ts.secs_start;
+    });
+    
+    println!("fetching bad reads...");
+    let bad_reads = get_bad_reads(scan_data_fpath, &read_timestamps);
+    
+    // write read-ids to file
+    println!("writing read_ids into file...");
+    let mut out_file = BufWriter::new(out_file);
+    
+    for bad_read in bad_reads.into_iter() {
+        writeln!(out_file, "{}", bad_read).expect("error writing read_id to out file");
+    }
+    
+    println!("all done!");
+}
+
+fn get_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
+    let mut ret = Vec::new();
+    
+    let mut slow5 = FileReader::open(slow5_fpath).expect("could not open slow5");
+    for rec in slow5.records() {
+        if rec.is_err() {
+            println!("error reading record {:?}, skipping...", rec.err());
+            continue;
+        }
+        let rec = rec.unwrap();
+        
+        let channel = rec.get_aux_field::<&str>("channel_number").expect("could not load aux_field `channel_number`");
+        let channel = channel.parse::<u32>().expect("could not parse channel_number as u32");
+        let well = rec.get_aux_field::<u8>("start_mux").expect("could not load aux_field `start_mux`");
+        
+        let samples_start = rec.get_aux_field::<u64>("start_time").expect("could not load aux_field `start_time`");
+        let secs_start = samples_start as f64 / rec.sampling_rate();
+
+        ret.push(ReadTimestamp {
+            read_id: String::from_utf8(rec.read_id().to_vec()).expect("could not get read_id from rec"),
+            secs_start,
+            channel,
+            well
+        })
+    }
+
+    ret
+}
+
+fn get_bad_reads<'a>(scan_data_fpath: &Path, read_timestamps: &'a Vec<ReadTimestamp>) -> Vec<&'a String> {
+    let mut ret = Vec::new();
+    
     let mut bad_channels = HashMap::new();
     
     let mux_stat_idx = 26;
@@ -76,38 +133,6 @@ fn main() {
         }
     }
     
-    // go through slow5 and find the last read in each
-    println!("generating slow5 rec timestamps...");
-    let mut read_timestamps = Vec::new();
-    
-    let mut slow5 = FileReader::open(slow5_fpath).expect("could not open slow5");
-    for rec in slow5.records() {
-        if rec.is_err() {
-            println!("error reading record {:?}, skipping", rec.err());
-            continue;
-        }
-        let rec = rec.unwrap();
-        
-        let channel = rec.get_aux_field::<&str>("channel_number").expect("could not load aux_field `channel_number`");
-        let channel = channel.parse::<u32>().expect("could not parse channel_number as u32");
-        let well = rec.get_aux_field::<u8>("start_mux").expect("could not load aux_field `start_mux`");
-        
-        let samples_start = rec.get_aux_field::<u64>("start_time").expect("could not load aux_field `start_time`");
-        let secs_start = samples_start as f64 / rec.sampling_rate();
-
-        read_timestamps.push(ReadTimestamp {
-            read_id: String::from_utf8(rec.read_id().to_vec()).expect("could not get read_id from rec"),
-            secs_start,
-            channel,
-            well
-        })
-    }
-    
-    // sort by start time
-    read_timestamps.sort_by_key(|ts| {
-        ts.secs_start;
-    });
-    
     // update bad channel entries
     println!("inserting timestamps into channel entries...");
     for ts in read_timestamps.iter() {
@@ -130,17 +155,13 @@ fn main() {
         }
     }
     
-    // write read-ids to file
-    println!("writing read_ids into file...");
-    let mut out_file = BufWriter::new(out_file);
-        
     for cmuxs in bad_channels.values() {
         for bad_mux in cmuxs.muxs.iter() {
             if let Some(read_id) = bad_mux.last_read_id {
-                writeln!(out_file, "{}", read_id).expect("error writing read_id to out file");
+                ret.push(read_id);
             }
         }
     }
     
-    println!("all done!");
+    ret
 }
