@@ -6,7 +6,7 @@ use slow5::{FileReader, RecordExt};
 mod tests;
 
 #[derive(Default)]
-struct ChannelMuxs<'a> {
+struct PoreMuxs<'a> {
     muxs: Vec<BadMux<'a>>,
     last_entry: usize,
 }
@@ -22,7 +22,7 @@ struct ReadTimestamp {
     read_id: String,
     secs_start: f64,
     channel: u32,
-    well: u8,
+    pore: u8,
 }
 
 fn main() {
@@ -51,7 +51,10 @@ fn main() {
         .append(true)
         .open(out_fpath)
         .expect("could not open out file");
-    
+        
+    println!("reading mux scan data...");
+    let pore_mux_map = get_scan_data(scan_data_fpath);
+
     println!("generating slow5 rec timestamps...");
     let mut read_timestamps = get_read_timestamps(slow5_fpath);
     
@@ -61,7 +64,7 @@ fn main() {
     });
     
     println!("fetching bad reads...");
-    let bad_reads = get_bad_reads(scan_data_fpath, &read_timestamps);
+    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
     
     // write read-ids to file
     println!("writing read_ids into file...");
@@ -87,7 +90,7 @@ fn get_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
         
         let channel = rec.get_aux_field::<&str>("channel_number").expect("could not load aux_field `channel_number`");
         let channel = channel.parse::<u32>().expect("could not parse channel_number as u32");
-        let well = rec.get_aux_field::<u8>("start_mux").expect("could not load aux_field `start_mux`");
+        let pore = rec.get_aux_field::<u8>("start_mux").expect("could not load aux_field `start_mux`");
         
         let samples_start = rec.get_aux_field::<u64>("start_time").expect("could not load aux_field `start_time`");
         let secs_start = samples_start as f64 / rec.sampling_rate();
@@ -96,67 +99,67 @@ fn get_read_timestamps(slow5_fpath: &Path) -> Vec<ReadTimestamp> {
             read_id: String::from_utf8(rec.read_id().to_vec()).expect("could not get read_id from rec"),
             secs_start,
             channel,
-            well
+            pore
         })
     }
 
     ret
 }
 
-fn get_bad_reads<'a>(scan_data_fpath: &Path, read_timestamps: &'a Vec<ReadTimestamp>) -> Vec<&'a String> {
-    let mut ret = Vec::new();
-    
-    let mut bad_channels = HashMap::new();
+fn get_scan_data(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxs> {
+    let mut ret = HashMap::new();
     
     let mux_stat_idx = 26;
     let channel_idx = 0;
-    let well_idx = 1;
+    let pore_idx = 1;
     let mux_secs_start_idx = 36;
     
-    // get every bad mux scan on a channel
-    println!("reading mux scan data...");
     for line in read_to_string(scan_data_fpath).unwrap().lines().skip(1) {
         let csv_entry = line.split(',').collect::<Vec<&str>>();
         if csv_entry[mux_stat_idx] != "single_pore" {
             let channel = csv_entry[channel_idx].parse::<u32>().expect("could not parse channel col");
-            let well = csv_entry[well_idx].parse::<u8>().expect("could not parse channel col");
-            let key = (channel, well);
+            let pore = csv_entry[pore_idx].parse::<u8>().expect("could not parse pore col");
+            let key = (channel, pore);
 
             let secs_start = csv_entry[mux_secs_start_idx].parse::<f64>().expect("could not parse start time col");
             
-            let cmuxs = bad_channels.entry(key).or_insert(ChannelMuxs::default());
+            let pore_muxs = ret.entry(key).or_insert(PoreMuxs::default());
             
-            cmuxs.muxs.push(BadMux {
+            pore_muxs.muxs.push(BadMux {
                 secs_start,
                 ..Default::default()
             });
         }
     }
+
+    ret
+}
+
+fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxs<'a>>, read_timestamps: &'a Vec<ReadTimestamp>) -> Vec<&'a String> {
+    let mut ret = Vec::new();
     
-    // update bad channel entries
-    println!("inserting timestamps into channel entries...");
     for ts in read_timestamps.iter() {
-        let cmuxs = bad_channels.get_mut(&(ts.channel, ts.well));
-        if cmuxs.is_none() { continue; }
-        let cmuxs = cmuxs.unwrap();
+        let pore_muxs = pore_mux_map.get_mut(&(ts.channel, ts.pore));
+        if pore_muxs.is_none() { continue; }
+        let pore_muxs = pore_muxs.unwrap();
         
-        for i in cmuxs.last_entry..cmuxs.muxs.len() {
-            let bad_mux = cmuxs.muxs.get_mut(i).expect("error indexing channel_muxs");
+        for i in pore_muxs.last_entry..pore_muxs.muxs.len() {
+            let bad_mux = pore_muxs.muxs.get_mut(i).expect("error indexing channel_muxs");
             if ts.secs_start >= bad_mux.secs_start {
-                cmuxs.last_entry = i+1;
+                pore_muxs.last_entry = i+1;
                 continue;
             }
             
             bad_mux.last_read_id = Some(&ts.read_id);
             bad_mux.last_read_secs_start = ts.secs_start;
             
-            cmuxs.last_entry = i;
+            pore_muxs.last_entry = i;
             break;
         }
     }
     
-    for cmuxs in bad_channels.values() {
-        for bad_mux in cmuxs.muxs.iter() {
+    for pore_muxs in pore_mux_map.values() {
+        for bad_mux in pore_muxs.muxs.iter() {
             if let Some(read_id) = bad_mux.last_read_id {
                 ret.push(read_id);
             }
