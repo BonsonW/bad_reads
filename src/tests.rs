@@ -35,15 +35,15 @@ fn pore_mux_map() {
     let pore_mux_map = gen_pore_mux_map(Path::new("test_data/pore_scan_test_data.csv"));
     
     let c1p1 = pore_mux_map.get(&(1, 1)).expect("could not get pore entry");
-    assert!(c1p1.muxs[0].bad == false);
+    assert!(c1p1.muxs[0].dead == false);
     assert!(c1p1.muxs[0].secs_start == 1.into());
-    assert!(c1p1.muxs[1].bad == true);
+    assert!(c1p1.muxs[1].dead == true);
     assert!(c1p1.muxs[1].secs_start == 2.into());
     
     let c1p2 = pore_mux_map.get(&(1, 2)).expect("could not get pore entry");
-    assert!(c1p2.muxs[0].bad == true);
+    assert!(c1p2.muxs[0].dead == true);
     assert!(c1p2.muxs[0].secs_start == 1.into());
-    assert!(c1p2.muxs[1].bad == true);
+    assert!(c1p2.muxs[1].dead == true);
     assert!(c1p2.muxs[1].secs_start == 2.into());
 }
 
@@ -55,7 +55,7 @@ fn one_read_one_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, bad: true, ..Default::default() }
+                MuxStat { secs_start: 1.0, dead: true, ..Default::default() }
             ],
             ..Default::default()
         }
@@ -78,7 +78,7 @@ fn one_read_after_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 0.0, bad: true, ..Default::default() }
+                MuxStat { secs_start: 0.0, dead: true, ..Default::default() }
             ],
             ..Default::default()
         }
@@ -101,7 +101,7 @@ fn two_read_one_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 2.0, bad: true, ..Default::default() }
+                MuxStat { secs_start: 2.0, dead: true, ..Default::default() }
             ],
             ..Default::default()
         }
@@ -125,8 +125,8 @@ fn two_read_two_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, bad: true, ..Default::default() },
-                MuxStat { secs_start: 3.0, bad: true, ..Default::default() },
+                MuxStat { secs_start: 1.0, dead: true, ..Default::default() },
+                MuxStat { secs_start: 3.0, dead: true, ..Default::default() },
             ],
             ..Default::default()
         }
@@ -151,8 +151,8 @@ fn one_bad_read_good_then_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, bad: false, ..Default::default() },
-                MuxStat { secs_start: 3.0, bad: true, ..Default::default() },
+                MuxStat { secs_start: 1.0, dead: false, ..Default::default() },
+                MuxStat { secs_start: 3.0, dead: true, ..Default::default() },
             ],
             ..Default::default()
         }
@@ -173,8 +173,8 @@ fn good_mux_before_read_then_bad() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, bad: false, ..Default::default() },
-                MuxStat { secs_start: 3.0, bad: true, ..Default::default() },
+                MuxStat { secs_start: 1.0, dead: false, ..Default::default() },
+                MuxStat { secs_start: 3.0, dead: true, ..Default::default() },
             ],
             ..Default::default()
         }
@@ -195,8 +195,8 @@ fn read_good_mux_read_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, bad: false, ..Default::default() },
-                MuxStat { secs_start: 3.0, bad: true, ..Default::default() },
+                MuxStat { secs_start: 1.0, dead: false, ..Default::default() },
+                MuxStat { secs_start: 3.0, dead: true, ..Default::default() },
             ],
             ..Default::default()
         }

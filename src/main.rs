@@ -16,7 +16,7 @@ struct MuxStat<'a> {
     secs_start: f64,
     last_read_secs_start: f64,
     last_read_id: Option<&'a String>,
-    bad: bool
+    dead: bool
 }
 
 struct ReadTimestamp {
@@ -126,13 +126,13 @@ fn gen_pore_mux_map(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxStats> 
         if csv_entry[mux_stat_col] == "single_pore" {
             pore_muxs.muxs.push(MuxStat {
                 secs_start,
-                bad: false,
+                dead: false,
                 ..Default::default()
             });
         } else {
             pore_muxs.muxs.push(MuxStat {
                 secs_start,
-                bad: true,
+                dead: true,
                 ..Default::default()
             });
         }
@@ -153,7 +153,7 @@ fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxStats<'a>>, rea
             let muxstat = pore_muxs.muxs.get_mut(i).expect("error indexing channel_muxs");
             
             if ts.secs_start < muxstat.secs_start {
-                if !muxstat.bad {
+                if !muxstat.dead {
                     break;
                 }
             } else {
