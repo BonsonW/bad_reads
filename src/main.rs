@@ -42,7 +42,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     
     if args.len() != 6 {
-        println!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path> <pore_state>");
+        println!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path> <pore_state> <read_mode>");
         exit(1);
     }
     
@@ -66,7 +66,7 @@ fn main() {
         "first" => ReadMode::First,
         "last" => ReadMode::Last,
         _ => {
-            println!("valid modes: <dead> | <alive>");
+            println!("valid modes: <first> | <last>");
             exit(1);
         }
     };
