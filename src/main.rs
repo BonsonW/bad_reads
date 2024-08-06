@@ -5,18 +5,18 @@ use slow5::{FileReader, RecordExt};
 #[cfg(test)]
 mod tests;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct PoreMuxStats<'a> {
     muxs: Vec<MuxStat<'a>>,
     last_entry: usize,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 struct MuxStat<'a> {
     secs_start: f64,
-    last_read_secs_start: f64,
-    last_read_id: Option<&'a String>,
-    dead: bool
+    read_secs_start: f64,
+    read_id: Option<&'a String>,
+    pore_state: PoreState
 }
 
 struct ReadTimestamp {
@@ -26,17 +26,50 @@ struct ReadTimestamp {
     pore: u8,
 }
 
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum PoreState {
+    #[default]
+    Dead,
+    Alive,
+}
+
+enum ReadMode {
+    First,
+    Last,
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     
-    if args.len() != 4 {
-        println!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path>");
+    if args.len() != 6 {
+        println!("usage: bad_reads <slow5_file path> <scan_data_file path> <out_file path> <pore_state>");
         exit(1);
     }
     
     let slow5_fpath = Path::new(&args[1]);
     let scan_data_fpath = Path::new(&args[2]);
     let out_fpath = Path::new(&args[3]);
+    
+    let pore_state_arg = &args[4];
+    let read_mode_arg = &args[5];
+    
+    let pore_state = match pore_state_arg.as_str() {
+        "dead" => PoreState::Dead,
+        "alive" => PoreState::Alive,
+        _ => {
+            println!("valid pore_states: <dead> | <alive>");
+            exit(1);
+        }
+    };
+    
+    let read_mode = match read_mode_arg.as_str() {
+        "first" => ReadMode::First,
+        "last" => ReadMode::Last,
+        _ => {
+            println!("valid modes: <dead> | <alive>");
+            exit(1);
+        }
+    };
     
     if !scan_data_fpath.exists() {
         println!("invalid scan_data path");
@@ -61,8 +94,11 @@ fn main() {
     println!("generating slow5 read timestamps...");
     let read_timestamps = gen_read_timestamps(slow5_fpath);
     
-    println!("fetching bad reads...");
-    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
+    println!("fetching reads...");
+    let bad_reads = match read_mode {
+        ReadMode::First => get_first_read(pore_mux_map, &read_timestamps, pore_state),
+        ReadMode::Last => get_last_read(pore_mux_map, &read_timestamps, pore_state),
+    };
     
     println!("writing read_ids into file...");
     let mut out_file = BufWriter::new(out_file);
@@ -126,13 +162,13 @@ fn gen_pore_mux_map(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxStats> 
         if csv_entry[mux_stat_col] == "single_pore" {
             pore_muxs.muxs.push(MuxStat {
                 secs_start,
-                dead: false,
+                pore_state: PoreState::Alive,
                 ..Default::default()
             });
         } else {
             pore_muxs.muxs.push(MuxStat {
                 secs_start,
-                dead: true,
+                pore_state: PoreState::Dead,
                 ..Default::default()
             });
         }
@@ -141,7 +177,7 @@ fn gen_pore_mux_map(scan_data_fpath: &Path) -> HashMap<(u32, u8), PoreMuxStats> 
     ret
 }
 
-fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxStats<'a>>, read_timestamps: &'a Vec<ReadTimestamp>) -> Vec<&'a String> {
+fn get_last_read<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxStats<'a>>, read_timestamps: &'a Vec<ReadTimestamp>, pore_state: PoreState) -> Vec<&'a String> {
     let mut ret = Vec::new();
     
     for ts in read_timestamps.iter() {
@@ -153,7 +189,7 @@ fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxStats<'a>>, rea
             let muxstat = pore_muxs.muxs.get_mut(i).expect("error indexing channel_muxs");
             
             if ts.secs_start < muxstat.secs_start {
-                if !muxstat.dead {
+                if pore_state != muxstat.pore_state {
                     break;
                 }
             } else {
@@ -161,8 +197,8 @@ fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxStats<'a>>, rea
                 continue;
             }
             
-            muxstat.last_read_id = Some(&ts.read_id);
-            muxstat.last_read_secs_start = ts.secs_start;
+            muxstat.read_id = Some(&ts.read_id);
+            muxstat.read_secs_start = ts.secs_start;
             
             pore_muxs.last_entry = i;
             break;
@@ -171,7 +207,46 @@ fn get_bad_reads<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxStats<'a>>, rea
     
     for pore_muxs in pore_mux_map.values() {
         for muxstat in pore_muxs.muxs.iter() {
-            if let Some(read_id) = muxstat.last_read_id {
+            if let Some(read_id) = muxstat.read_id {
+                ret.push(read_id);
+            }
+        }
+    }
+    
+    ret
+}
+
+fn get_first_read<'a>(mut pore_mux_map: HashMap<(u32, u8), PoreMuxStats<'a>>, read_timestamps: &'a Vec<ReadTimestamp>, pore_state: PoreState) -> Vec<&'a String> {
+    let mut ret = Vec::new();
+    
+    for ts in read_timestamps.iter().rev() {
+        let pore_muxs = pore_mux_map.get_mut(&(ts.channel, ts.pore));
+        if pore_muxs.is_none() { continue; }
+        let pore_muxs = pore_muxs.unwrap();
+        
+        for i in (0..(pore_muxs.muxs.len() - pore_muxs.last_entry)).rev() {
+            let muxstat = pore_muxs.muxs.get_mut(i).expect("error indexing channel_muxs");
+            
+            if ts.secs_start > muxstat.secs_start {
+                if pore_state != muxstat.pore_state {
+                    break;
+                }
+            } else {
+                pore_muxs.last_entry = i+1;
+                continue;
+            }
+            
+            muxstat.read_id = Some(&ts.read_id);
+            muxstat.read_secs_start = ts.secs_start;
+            
+            pore_muxs.last_entry = i;
+            break;
+        }
+    }
+    
+    for pore_muxs in pore_mux_map.values() {
+        for muxstat in pore_muxs.muxs.iter() {
+            if let Some(read_id) = muxstat.read_id {
                 ret.push(read_id);
             }
         }

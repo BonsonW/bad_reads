@@ -35,15 +35,15 @@ fn pore_mux_map() {
     let pore_mux_map = gen_pore_mux_map(Path::new("test_data/pore_scan_test_data.csv"));
     
     let c1p1 = pore_mux_map.get(&(1, 1)).expect("could not get pore entry");
-    assert!(c1p1.muxs[0].dead == false);
+    assert!(c1p1.muxs[0].pore_state == PoreState::Alive);
     assert!(c1p1.muxs[0].secs_start == 1.into());
-    assert!(c1p1.muxs[1].dead == true);
+    assert!(c1p1.muxs[1].pore_state == PoreState::Dead);
     assert!(c1p1.muxs[1].secs_start == 2.into());
     
     let c1p2 = pore_mux_map.get(&(1, 2)).expect("could not get pore entry");
-    assert!(c1p2.muxs[0].dead == true);
+    assert!(c1p2.muxs[0].pore_state == PoreState::Dead);
     assert!(c1p2.muxs[0].secs_start == 1.into());
-    assert!(c1p2.muxs[1].dead == true);
+    assert!(c1p2.muxs[1].pore_state == PoreState::Dead);
     assert!(c1p2.muxs[1].secs_start == 2.into());
 }
 
@@ -55,7 +55,7 @@ fn one_read_one_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, dead: true, ..Default::default() }
+                MuxStat { secs_start: 1.0, pore_state: PoreState::Dead, ..Default::default() }
             ],
             ..Default::default()
         }
@@ -65,9 +65,11 @@ fn one_read_one_bad_mux() {
         ReadTimestamp { read_id: "a".into(), secs_start: 0.0, channel: 0, pore: 0 }
     );
     
-    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
+    let reads = get_last_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
+    assert!(!reads.is_empty());
     
-    assert!(!bad_reads.is_empty());
+    let reads = get_first_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
+    assert!(reads.is_empty());
 }
 
 #[test]
@@ -78,7 +80,7 @@ fn one_read_after_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 0.0, dead: true, ..Default::default() }
+                MuxStat { secs_start: 0.0, pore_state: PoreState::Dead, ..Default::default() }
             ],
             ..Default::default()
         }
@@ -88,9 +90,11 @@ fn one_read_after_bad_mux() {
         ReadTimestamp { read_id: "a".into(), secs_start: 1.0, channel: 0, pore: 0 }
     );
     
-    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
+    let reads = get_last_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
+    assert!(reads.is_empty());
     
-    assert!(bad_reads.is_empty());
+    let reads = get_first_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
+    assert!(!reads.is_empty());
 }
 
 #[test]
@@ -101,7 +105,7 @@ fn two_read_one_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 2.0, dead: true, ..Default::default() }
+                MuxStat { secs_start: 2.0, pore_state: PoreState::Dead, ..Default::default() }
             ],
             ..Default::default()
         }
@@ -110,11 +114,35 @@ fn two_read_one_bad_mux() {
     read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 0.0, channel: 0, pore: 0 });
     read_timestamps.push(ReadTimestamp { read_id: "b".into(), secs_start: 1.0, channel: 0, pore: 0 });
     
-    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
+    let reads = get_last_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
     
-    assert!(!bad_reads.is_empty());
-    assert!(bad_reads.len() == 1);
-    assert!(bad_reads[0] == "b");
+    assert!(!reads.is_empty());
+    assert!(reads.len() == 1);
+    assert!(reads[0] == "b");
+}
+
+#[test]
+fn one_bad_mux_two_read() {
+    let mut pore_mux_map = HashMap::new();
+    let mut read_timestamps = Vec::new();
+    
+    pore_mux_map.insert((0, 0),
+        PoreMuxStats {
+            muxs: vec![
+                MuxStat { secs_start: 0.0, pore_state: PoreState::Dead, ..Default::default() }
+            ],
+            ..Default::default()
+        }
+    );
+    
+    read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 1.0, channel: 0, pore: 0 });
+    read_timestamps.push(ReadTimestamp { read_id: "b".into(), secs_start: 2.0, channel: 0, pore: 0 });
+    
+    let reads = get_first_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
+    
+    assert!(!reads.is_empty());
+    assert!(reads.len() == 1);
+    assert!(reads[0] == "a");
 }
 
 #[test]
@@ -125,8 +153,8 @@ fn two_read_two_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, dead: true, ..Default::default() },
-                MuxStat { secs_start: 3.0, dead: true, ..Default::default() },
+                MuxStat { secs_start: 1.0, pore_state: PoreState::Dead, ..Default::default() },
+                MuxStat { secs_start: 3.0, pore_state: PoreState::Dead, ..Default::default() },
             ],
             ..Default::default()
         }
@@ -135,12 +163,38 @@ fn two_read_two_bad_mux() {
     read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 0.0, channel: 0, pore: 0 });
     read_timestamps.push(ReadTimestamp { read_id: "b".into(), secs_start: 2.0, channel: 0, pore: 0 });
     
-    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
+    let reads = get_last_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
     
-    assert!(!bad_reads.is_empty());
-    assert!(bad_reads.len() == 2);
-    assert!(bad_reads[0] == "a");
-    assert!(bad_reads[1] == "b");
+    assert!(!reads.is_empty());
+    assert!(reads.len() == 2);
+    assert!(reads[0] == "a");
+    assert!(reads[1] == "b");
+}
+
+#[test]
+fn two_bad_mux_two_read() {
+    let mut pore_mux_map = HashMap::new();
+    let mut read_timestamps = Vec::new();
+    
+    pore_mux_map.insert((0, 0),
+        PoreMuxStats {
+            muxs: vec![
+                MuxStat { secs_start: 0.0, pore_state: PoreState::Dead, ..Default::default() },
+                MuxStat { secs_start: 2.0, pore_state: PoreState::Dead, ..Default::default() },
+            ],
+            ..Default::default()
+        }
+    );
+    
+    read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 1.0, channel: 0, pore: 0 });
+    read_timestamps.push(ReadTimestamp { read_id: "b".into(), secs_start: 3.0, channel: 0, pore: 0 });
+    
+    let reads = get_first_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
+    
+    assert!(!reads.is_empty());
+    assert!(reads.len() == 2);
+    assert!(reads[0] == "a");
+    assert!(reads[1] == "b");
 }
 
 #[test]
@@ -151,8 +205,8 @@ fn one_bad_read_good_then_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, dead: false, ..Default::default() },
-                MuxStat { secs_start: 3.0, dead: true, ..Default::default() },
+                MuxStat { secs_start: 1.0, pore_state: PoreState::Alive, ..Default::default() },
+                MuxStat { secs_start: 3.0, pore_state: PoreState::Dead, ..Default::default() },
             ],
             ..Default::default()
         }
@@ -160,9 +214,31 @@ fn one_bad_read_good_then_bad_mux() {
     
     read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 0.0, channel: 0, pore: 0 });
     
-    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
+    let reads = get_last_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
     
-    assert!(bad_reads.is_empty());
+    assert!(reads.is_empty());
+}
+
+#[test]
+fn bad_then_good_mux_one_bad_read() {
+    let mut pore_mux_map = HashMap::new();
+    let mut read_timestamps = Vec::new();
+    
+    pore_mux_map.insert((0, 0),
+        PoreMuxStats {
+            muxs: vec![
+                MuxStat { secs_start: 0.0, pore_state: PoreState::Dead, ..Default::default() },
+                MuxStat { secs_start: 1.0, pore_state: PoreState::Alive, ..Default::default() },
+            ],
+            ..Default::default()
+        }
+    );
+    
+    read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 2.0, channel: 0, pore: 0 });
+    
+    let reads = get_first_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
+    
+    assert!(reads.is_empty());
 }
 
 #[test]
@@ -173,8 +249,8 @@ fn good_mux_before_read_then_bad() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, dead: false, ..Default::default() },
-                MuxStat { secs_start: 3.0, dead: true, ..Default::default() },
+                MuxStat { secs_start: 1.0, pore_state: PoreState::Alive, ..Default::default() },
+                MuxStat { secs_start: 3.0, pore_state: PoreState::Dead, ..Default::default() },
             ],
             ..Default::default()
         }
@@ -182,9 +258,31 @@ fn good_mux_before_read_then_bad() {
     
     read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 2.0, channel: 0, pore: 0 });
     
-    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
+    let reads = get_last_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
     
-    assert!(!bad_reads.is_empty());
+    assert!(!reads.is_empty());
+}
+
+#[test]
+fn bad_mux_before_read_then_good() {
+    let mut pore_mux_map = HashMap::new();
+    let mut read_timestamps = Vec::new();
+    
+    pore_mux_map.insert((0, 0),
+        PoreMuxStats {
+            muxs: vec![
+                MuxStat { secs_start: 1.0, pore_state: PoreState::Dead, ..Default::default() },
+                MuxStat { secs_start: 3.0, pore_state: PoreState::Alive, ..Default::default() },
+            ],
+            ..Default::default()
+        }
+    );
+    
+    read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 2.0, channel: 0, pore: 0 });
+    
+    let reads = get_first_read(pore_mux_map.clone(), &read_timestamps, PoreState::Dead);
+    
+    assert!(!reads.is_empty());
 }
 
 #[test]
@@ -195,8 +293,8 @@ fn read_good_mux_read_bad_mux() {
     pore_mux_map.insert((0, 0),
         PoreMuxStats {
             muxs: vec![
-                MuxStat { secs_start: 1.0, dead: false, ..Default::default() },
-                MuxStat { secs_start: 3.0, dead: true, ..Default::default() },
+                MuxStat { secs_start: 1.0, pore_state: PoreState::Alive, ..Default::default() },
+                MuxStat { secs_start: 3.0, pore_state: PoreState::Dead, ..Default::default() },
             ],
             ..Default::default()
         }
@@ -205,9 +303,34 @@ fn read_good_mux_read_bad_mux() {
     read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 0.0, channel: 0, pore: 0 });
     read_timestamps.push(ReadTimestamp { read_id: "b".into(), secs_start: 2.0, channel: 0, pore: 0 });
     
-    let bad_reads = get_bad_reads(pore_mux_map, &read_timestamps);
+    let reads = get_last_read(pore_mux_map.clone().clone(), &read_timestamps, PoreState::Dead);
     
-    assert!(!bad_reads.is_empty());
-    assert!(bad_reads.len() == 1);
-    assert!(bad_reads[0] == "b");
+    assert!(!reads.is_empty());
+    assert!(reads.len() == 1);
+    assert!(reads[0] == "b");
+}
+
+#[test]
+fn good_mux_read_bad_mux_read() {
+    let mut pore_mux_map = HashMap::new();
+    let mut read_timestamps = Vec::new();
+    
+    pore_mux_map.insert((0, 0),
+        PoreMuxStats {
+            muxs: vec![
+                MuxStat { secs_start: 0.0, pore_state: PoreState::Alive, ..Default::default() },
+                MuxStat { secs_start: 2.0, pore_state: PoreState::Dead, ..Default::default() },
+            ],
+            ..Default::default()
+        }
+    );
+    
+    read_timestamps.push(ReadTimestamp { read_id: "a".into(), secs_start: 1.0, channel: 0, pore: 0 });
+    read_timestamps.push(ReadTimestamp { read_id: "b".into(), secs_start: 3.0, channel: 0, pore: 0 });
+    
+    let reads = get_first_read(pore_mux_map.clone().clone(), &read_timestamps, PoreState::Dead);
+    
+    assert!(!reads.is_empty());
+    assert!(reads.len() == 1);
+    assert!(reads[0] == "b");
 }
