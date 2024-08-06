@@ -1,4 +1,29 @@
+use std::collections::HashMap;
+
 use super::*;
+
+#[test]
+fn filter_reads_odd() {
+    let read_ids_fpath = Path::new("test_data/rand_readids_5.txt");
+    let slow5_fpath = Path::new("test_data/rand_reads_5.blow5");
+    let read_ids = filter_reads(read_ids_fpath, slow5_fpath, FilterMode::Odd);
+    
+    assert!(read_ids.len() == 2);
+    assert!(read_ids[0] == "8bfec45c-b89e-4510-9469-e94bb415b8e4");
+    assert!(read_ids[1] == "503f0bd8-3a00-4c76-9f2e-c70ada3d418b");
+}
+
+#[test]
+fn filter_reads_even() {
+    let read_ids_fpath = Path::new("test_data/rand_readids_5.txt");
+    let slow5_fpath = Path::new("test_data/rand_reads_5.blow5");
+    let read_ids = filter_reads(read_ids_fpath, slow5_fpath, FilterMode::Even);
+    
+    assert!(read_ids.len() == 3);
+    assert!(read_ids[0] == "d62da1d5-971e-4e5d-9465-5715300e8523");
+    assert!(read_ids[1] == "d56f390f-2e33-436e-9220-a93aca7dd11b");
+    assert!(read_ids[2] == "76b715cd-aaea-4ae1-8026-41c1772597ed");
+}
 
 #[test]
 fn read_timestamps() {
